@@ -1,0 +1,140 @@
+# GitLab CI Docker Image
+#image: node:latest
+image: node:12.14.0
+
+#cache:
+#  untracked: true
+#  paths:
+#      - node_modules/
+# Build - Build necessary JS files
+# Test - Run tests
+# Deploy - Deploy application to S3/ElasticBeanstalk
+stages:
+  - build
+  - deploy
+
+# Configuration variables
+variables:
+  #EB_APP_ENV: "RestfulApp-env" # ElasticBeanstalk Application Environment
+  APP_NAME: "spitfire-api" # Application Name
+  S3_BUCKET: "gitlab-code-storage-01" # S3 bucket for ElasticBeanstalk
+  S3_KEY: "spitfire-app-02-zip-files" # S3 folder to upload built app
+  ZIP_FILE: "spitfire-api"
+
+# Job: Build
+# Installs npm packages, transpiles ES6 -> ES5
+# Passes node_modules/, dist/ onto next steps using artifacts
+build:
+  stage: build
+  script:
+    - echo "Starting Build Script"
+    - pwd
+    - ls -a
+
+    - echo "Installing ZIP"
+    - apt-get update
+    - apt-get install -y zip
+
+    - echo "Installing NPM"
+    - npm install --quiet
+
+    - npm -v
+    - nodejs -v
+    - ls -a
+
+    - echo "Run Build"
+    - npm run build
+
+    - echo "Set unique zip file name"
+    - ts=`date +%s`
+    - ZIP_FILE="$ZIP_FILE-$ts.zip"
+    - echo "ZIP_FILE = $ZIP_FILE"
+
+    - zip -r --quiet ../$ZIP_FILE *
+    #- zip -r $ZIP_FILE *
+    #- cd ..
+    - mkdir zips
+    - mv ../$ZIP_FILE zips/$ZIP_FILE
+    #- zipinfo $ZIP_FILE
+    - ls -a
+    - ls -a zips
+
+  cache:
+    paths:
+      - node_modules/
+  artifacts:
+    when: on_success
+    paths:
+      #- $ZIP_FILE
+      - zips/
+  only:
+    - master
+
+# Job: Deploy
+# Zips the contents of our built application, uploads to S3
+# Configures a new EB version and switches to that version
+deploy:
+  image: python:latest
+  stage: deploy
+  script:
+    - echo "Starting Deploy Script"
+    - pwd
+    - ls -a
+    - ls -a zips
+
+    - echo "Installing PIP needed for AWSCLI"
+    - pip install awscli
+
+    #- echo "Installing ZIP"
+    #- apt-get update
+    #- apt-get install -y zip
+
+    - echo "List directory contents as a debug check"
+    - cd zips
+    - pwd
+    - ls -a
+
+    #- echo "Set unique zip file name"
+    #- ts=`date +%s`
+    #- ZIP_FILE="$ZIP_FILE-$ts.zip"
+    #- echo "ZIP_FILE = $ZIP_FILE"
+
+    #- echo "Zip up files in dist directory"
+    #- cd src
+    #- cd dist
+    #- cd /builds/apps
+    #- ls -a
+    #- zip -r ../$ZIP_FILE *
+    #- zip -r $ZIP_FILE *
+    #- cd ..
+    #- zipinfo $ZIP_FILE
+
+    #- echo "List directory contents for debug check"
+    #- pwd
+    #- ls -alh *.zip
+
+    - echo "Set AWS configuration parameters"
+    - aws configure set aws_access_key_id $AWS_ACCESS_KEY_ID
+    - aws configure set aws_secret_access_key $AWS_SECRET_ACCESS_KEY
+    - aws configure set region $AWS_REGION
+
+    #- echo "Set EB location parameters"
+    #- S3_KEY="$S3_KEY/$ZIP_FILE"
+
+    - echo "List EB location parameters"
+    - echo "S3_BUCKET = $S3_BUCKET"
+    - echo "S3_KEY = $S3_KEY"
+    - echo "ZIP_FILE = $ZIP_FILE"
+
+    - echo "Copying zip file to S3 Bucket"
+    - aws s3 cp *.zip "s3://$S3_BUCKET/$S3_KEY/"
+
+    #- echo "Create application version for Elastic Beanstalk"
+    #- aws elasticbeanstalk create-application-version --application-name $EB_APP_NAME --version-label "$EB_APP_NAME-spitfire-$ts" --source-bundle S3Bucket="$S3_BUCKET",S3Key="$S3_KEY"
+
+    #- echo "Update environment for Elastic Beanstalk"
+    #- aws elasticbeanstalk update-environment --application-name $EB_APP_NAME --environment-name $EB_APP_ENV --version-label "$EB_APP_NAME-spitfire-$ts"
+
+    - echo "Deploy Script Done"
+  only:
+    - master
